@@ -16,12 +16,24 @@
  *******************************************************************************/
 package org.openhealthtools.mdht.uml.ui.properties.internal.sections;
 
+import java.io.IOException;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 
+import javax.xml.XMLConstants;
+import javax.xml.transform.Source;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
+import javax.xml.validation.Validator;
+
 import org.eclipse.core.commands.operations.IUndoableOperation;
+import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.IAdaptable;
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Status;
@@ -58,6 +70,7 @@ import org.eclipse.ui.IWorkbenchPart;
 import org.eclipse.ui.views.properties.tabbed.ITabbedPropertyConstants;
 import org.eclipse.ui.views.properties.tabbed.TabbedPropertySheetPage;
 import org.eclipse.uml2.common.util.UML2Util;
+import org.eclipse.uml2.uml.Class;
 import org.eclipse.uml2.uml.Classifier;
 import org.eclipse.uml2.uml.Constraint;
 import org.eclipse.uml2.uml.Element;
@@ -70,6 +83,9 @@ import org.openhealthtools.mdht.uml.cda.core.util.ICDAProfileConstants;
 import org.openhealthtools.mdht.uml.ui.properties.sections.WrapperAwareModelerPropertySection;
 import org.openhealthtools.mdht.uml.validation.ocl.EcoreProfileEnvironment;
 import org.openhealthtools.mdht.uml.validation.ocl.EcoreProfileEnvironmentFactory;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotRecognizedException;
+import org.xml.sax.SAXNotSupportedException;
 
 /**
  * The profile properties section for UML constraints.
@@ -152,6 +168,52 @@ public class ConstraintSection extends WrapperAwareModelerPropertySection {
 		}
 	}
 
+	private void validateDita() {
+		if (!(ditaEnableButton.getSelection() && "Analysis".equals(languageCombo.getText()) && !bodyText.getText().isEmpty()))
+			return;
+
+		IPath tmpFileInWorkspaceDir = generateTempDita();
+		try {
+			validateXSD(tmpFileInWorkspaceDir);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		// TODO read DITA
+	}
+
+	private void validateXSD(IPath tmpFileInWorkspaceDir) throws IOException, SAXNotRecognizedException,
+			SAXNotSupportedException {
+		URL schemaFile = new URL(
+			"http://docs.oasis-open.org/dita/v1.2/cd04/DITA1.2-xsds/xsd1.2-url/technicalContent/xsd/topic.xsd");
+		Source xmlFile = new StreamSource(tmpFileInWorkspaceDir.toFile());
+		SchemaFactory schemaFactory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+
+		try {
+			Schema schema = schemaFactory.newSchema(schemaFile);
+			Validator validator = schema.newValidator();
+			validator.validate(xmlFile);
+			System.out.println(xmlFile.getSystemId() + " is valid");
+		} catch (SAXException e) {
+			System.out.println(xmlFile.getSystemId() + " is NOT valid");
+			System.out.println("Reason: " + e.getLocalizedMessage());
+		}
+
+	}
+
+	private IPath generateTempDita() {
+		IWorkspace workspace = ResourcesPlugin.getWorkspace();
+		IPath tmpFileInWorkspaceDir = workspace.getRoot().getLocation().append("tmp").append(
+			constraint.getContext().getName()).addFileExtension("dita");
+
+		TransformClassContent transformer = new TransformClassContent();
+
+		if (!tmpFileInWorkspaceDir.toFile().getParentFile().exists())
+			tmpFileInWorkspaceDir.toFile().getParentFile().mkdirs();
+
+		transformer.caseClass((Class) constraint.getContext(), tmpFileInWorkspaceDir);
+		return tmpFileInWorkspaceDir;
+	}
+
 	public void modifyFields() {
 		if (!(bodyModified || languageModified || ditaModified)) {
 			return;
@@ -218,6 +280,7 @@ public class ConstraintSection extends WrapperAwareModelerPropertySection {
 								stereotype, ICDAProfileConstants.CONSTRAINT_DITA_ENABLED,
 								ditaEnableButton.getSelection());
 						}
+						validateDita();
 					} else {
 						return Status.CANCEL_STATUS;
 					}
